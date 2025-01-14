@@ -1,33 +1,12 @@
-import _ from 'lodash';
-import jsonpath from 'jsonpath';
-import PQueue from 'p-queue';
-
-import { encodeBase64 } from '@/utils/tool';
-
-import { fetchAnalyzePlay } from '@/api/analyze';
-import { updateHistory, detailHistory, addHistory } from '@/api/history';
-import { setStream } from '@/api/lab';
+import { JSONPath } from 'jsonpath-plus';
+import { putHistory, findHistory, addHistory } from '@/api/history';
 import { setT3Proxy } from '@/api/proxy';
-import { detailStar, addStar, delStar, updateStar } from '@/api/star';
-
-import {
-  fetchDrpyPlayUrl,
-  fetchHipyPlayUrl,
-  fetchT3PlayUrl,
-  fetchXBPQPlayUrl,
-  t3RuleProxy,
-  t3RuleInit,
-  catvodRuleInit,
-  xbpqInit,
-  fetchDetail,
-  fetchSearch,
-  fetchCatvodPlayUrl,
-  fetchDoubanRecommend,
-} from '@/utils/cms';
+import { fetchConfig } from '@/api/setting';
+import { findStar, addStar, delStar, putStar } from '@/api/star';
+import { fetchRecommPage, fetchCmsDetail, fetchCmsSearch, fetchCmsPlay, fetchCmsProxy } from '@/api/site';
+import { hash } from '@/utils/crypto';
 import sniffer from '@/utils/sniffer';
-import { checkMediaType, dictDeepClone, getConfig } from '@/utils/tool';
-
-const queue = new PQueue({ concurrency: 5 }); // 设置并发限制为5
+import { mediaUtils } from '@/components/player';
 
 // 官解地址
 const VIP_LIST = [
@@ -43,47 +22,74 @@ const VIP_LIST = [
   'tudou.com',
 ];
 
-// Binge
+/**
+ * 获取追番数据
+ * @param relateId 关联ID
+ * @param videoId 视频ID
+ * @returns { status: boolean, data: any }
+ */
 const fetchBingeData = async (relateId: string, videoId: number): Promise<{ status: boolean; data: any }> => {
+  console.log('[film_common][fetchBingeData][start]收藏获取流程开启');
+  let data = {
+    status: false,
+    data: {},
+  };
   try {
-    const response = await detailStar({ relateId, videoId });
-    return {
-      status: Boolean(response), // 直接转换为布尔值
-      data: response || {}, // 如果response存在则使用response，否则使用空对象
+    const response = await findStar({ relateId, videoId });
+    data = {
+      status: !!response,
+      data: response || {},
     };
+    console.log(`[film_common][fetchBingeData][return]`, data);
   } catch (err) {
-    console.error(`[film_common][fetchBingeData]`, err); // 更详细的错误日志
-    return {
-      status: false,
-      data: {},
-    };
+    console.error(`[film_common][fetchBingeData][error]`, err);
+  } finally {
+    console.log(`[film_common][fetchBingeData][end]收藏获取流程结束`);
+    return data;
   }
 };
 
+/**
+ * 追番数据操作
+ * @param action 操作类型 add/del/update
+ * @param id 追番ID
+ * @param doc 操作数据
+ * @returns { status: boolean, data: any }
+ */
 const putBingeData = async (action: string, id: any = null, doc: any = {}): Promise<{ status: boolean; data: any }> => {
+  console.log('[film_common][putBingeData][start]收藏更新流程开启');
+  let data = {
+    status: false,
+    data: {},
+  };
   try {
     let res = {};
     if (action === 'add') {
       res = await addStar(doc);
     } else if (action === 'del') {
-      res = await delStar(id);
+      res = await delStar({ ids: [id] });
     } else if (action === 'update') {
-      res = await updateStar(id, doc);
+      res = await putStar({ ids: [id], doc });
     }
-    return {
+    data = {
       status: true,
       data: res,
     };
+    console.log(`[film_common][putBingeData][return]`, data);
   } catch (err) {
-    console.error(`[film_common][putBingeData]`, err);
-    return {
-      status: false,
-      data: {},
-    };
+    console.error(`[film_common][putBingeData][error]`, err);
+  } finally {
+    console.log(`[film_common][putBingeData][end]收藏更新流程结束`);
+    return data;
   }
 };
 
-// History
+/**
+ * 获取历史数据
+ * @param relateId 关联ID
+ * @param videoId 视频ID
+ * @returns { status: boolean, data: any }
+ */
 const fetchHistoryData = async (relateId: string, videoId: number) => {
   console.log('[film_common][fetchHistoryData][start]历史获取流程开启');
   let data: any = {
@@ -104,7 +110,7 @@ const fetchHistoryData = async (relateId: string, videoId: number) => {
   };
 
   try {
-    const response = await detailHistory({ relateId, videoId });
+    const response = await findHistory({ relateId, videoId });
     if (response) data = response;
     console.log(`[film_common][fetchHistoryData][return]`, data);
   } catch (err) {
@@ -115,8 +121,14 @@ const fetchHistoryData = async (relateId: string, videoId: number) => {
   }
 };
 
+/**
+ * 更新历史数据
+ * @param id 历史ID
+ * @param doc 更新数据
+ * @returns { status: boolean, data: any }
+ */
 const putHistoryData = async (id: any = null, doc: any = {}): Promise<void> => {
-  // console.log('[film_common][putHistoryData][start]历史更新流程开启');
+  console.log('[film_common][putHistoryData][start]历史更新流程开启');
   let data: any = {
     id: null,
     date: 1715018234,
@@ -136,58 +148,19 @@ const putHistoryData = async (id: any = null, doc: any = {}): Promise<void> => {
 
   try {
     if (id) {
-      data = await updateHistory(id, doc);
+      data = await putHistory({
+        ids: [id],
+        doc,
+      });
     } else {
       data = await addHistory(doc);
     }
-    // console.log(`[film_common][putHistoryData][return]`, data);
+    console.log(`[film_common][putHistoryData][return]`, data);
   } catch (err) {
     console.log(`[film_common][putHistoryData][error]`, err);
   } finally {
-    // console.log(`[film_common][putHistoryData][end]历史更新流程结束`);
-    return data;
-  }
-};
-
-// Analyze
-const fetchAnalyzeData = async (): Promise<{ default: any; flag: any[]; active: any[] }> => {
-  console.log('[film_common][fetchAnalyzeData][start]开始获取解析数据流程');
-  let data: { default: any; flag: any[]; active: any[] } = { default: {}, flag: [], active: [] };
-
-  try {
-    const response = await fetchAnalyzePlay();
-    data = {
-      default: response.default || {},
-      flag: response.flag || [],
-      active: response.active || [],
-    };
-    console.log(`[film_common][fetchAnalyzeData][return]`, data);
-  } catch (err) {
-    console.error(`[film_common][fetchAnalyzeData][error]`, err);
-  } finally {
-    console.log('[film_common][fetchAnalyzeData][end]获取解析数据流程结束');
-    return data;
-  }
-};
-
-// Ad
-const removeAd = async (url: string, type: string, headers: object | null = null) => {
-  console.log('[film_common][removeAd][start]开始移除广告流程');
-  let data = {
-    url,
-    msg: 'fail',
-    code: 500,
-  };
-  try {
-    if (type === 'm3u8') {
-      data = await setStream(url, '.m3u8', headers ? headers : null);
-    }
-    console.log(`[film_common][removeAd][return]`, data);
-  } catch (err) {
-    console.error(`[film_common][removeAd][error]`, err);
-  } finally {
-    console.log('[film_common][removeAd][end]移除广告流程结束');
-    return data;
+    console.log(`[film_common][putHistoryData][end]历史更新流程结束`);
+    return data?.[0];
   }
 };
 
@@ -204,171 +177,120 @@ const removeAd = async (url: string, type: string, headers: object | null = null
  * @param snifferMode 嗅探数据 type url
  * @param url 播放链接
  * @param site 源信息
- * @param analyze 解析 url type flag
+ * @param analyzeType 解析类型
  * @param flimSource 当前选中线路
  * @param adFlag 是否去广告
  * @returns
  */
-const playHelper = async (snifferMode, url: string, site, analyze, flimSource, adFlag = false) => {
+const playHelper = async (
+  url: string,
+  site: { [key: string]: string | number },
+  flimSource: string,
+  analyzeType: number = -1,
+  adFlag = false,
+) => {
   console.log(`[film_common][playHelper][before_start]准备处理地址:${url}`);
   console.log(`[film_common][playHelper][start]播放处理流程开始`);
 
-  let data: { url: string; mediaType: string; isOfficial: boolean; headers: object | null } = {
-    url: '',
-    mediaType: '',
-    isOfficial: false,
-    headers: null,
-  };
+  let data: { [key: string]: any } = { url: '', originalUrl: url, mediaType: '', headers: {}, quality: [] };
 
   try {
-    let playerUrl = url;
-    let script: string = '';
-    let extra: string = '';
-    let isOfficial: boolean = false;
-    let headers: object | null = null;
-    let parse = true;
-    let playData: any = { playUrl: url, script: '', extra: '', parse: parse };
+    // 1. 解析
+    if (analyzeType !== -1) {
+      const analyzeRes = await fetchAnalyzeHelper(url, analyzeType);
+      data = { ...data, url: analyzeRes.url, mediaType: analyzeRes.mediaType, headers: analyzeRes.headers };
+      return;
+    }
 
-    // 解析播放
-    const jxPlay = async (url: string, analyze: any, snifferMode: any): Promise<any> => {
-      let playerUrl = url;
-      const urlObj = url && url.startsWith('http') ? new URL(url) : null;
-      const hostname = urlObj?.hostname;
-
-      // 官方解析条件
-      const isOfficial =
-        (hostname && VIP_LIST.some((host) => hostname.includes(host))) ||
-        analyze.flag.some((flag) => flimSource.includes(flag));
-
-      if (analyze?.url) {
-        // 官方解析地址
-        const officialSnifferUrl = isOfficial && analyze.url ? `${analyze.url}${url}` : '';
-
-        // 预处理嗅探URL
-        const preSnifferUrl = officialSnifferUrl;
-
-        if (preSnifferUrl) {
-          switch (analyze.type) {
-            case 1: // JSON类型
-              playerUrl = await fetchJxJsonPlayUrlHelper(analyze.url, url);
-              break;
-            case 0: // Web类型
-              const snifferApi =
-                snifferMode.type === 'custom' && /^http/.test(snifferMode.url)
-                  ? new URL(snifferMode.url).origin + new URL(snifferMode.url).pathname
-                  : '';
-              playerUrl = await fetchJxWebPlayUrlHelper(snifferMode.type, `${snifferApi}?url=${preSnifferUrl}`);
-              break;
-            default: // 不支持的解析类型处理
-              console.warn(`[film_common][playHelper][warn]不支持的解析类型: ${analyze.type}`);
-          }
-        }
-      }
-
-      return {
-        url: playerUrl || url,
-        isOfficial: isOfficial,
-      };
+    // 2. 执行源规则
+    const play = {
+      headers: {},
+      parse: 0,
+      url,
+      quality: [],
+      sniffer: {
+        run_script: '',
+        init_script: '',
+        custom_regex: '',
+        sniffer_exclude: '',
+      },
     };
+    const playRes = await fetchCmsPlay({ sourceId: site.id, input: url, flag: flimSource });
+    if (playRes?.header) play.headers = playRes.header;
+    if (playRes?.parse) play.parse = playRes.parse;
+    if (playRes?.url) play.url = playRes.url;
+    if (playRes?.parse_extra?.run_script) play.sniffer.run_script = playRes.parse_extra.run_script;
+    if (playRes?.parse_extra?.init_script) play.sniffer.init_script = playRes.parse_extra.init_script;
+    if (playRes?.parse_extra?.custom_regex) play.sniffer.custom_regex = playRes.parse_extra.custom_regex;
+    if (playRes?.parse_extra?.sniffer_exclude) play.sniffer.sniffer_exclude = playRes.parse_extra.sniffer_exclude;
 
-    if (site.playUrl) {
-      playerUrl = await fetchJxJsonPlayUrlHelper(site.playUrl, url);
-    } else {
-      switch (site.type) {
-        case 2:
-          // drpy免嗅
-          playerUrl = await fetchDrpyPlayUrlHelper(site, url);
-          break;
-        case 6:
-          // hipy获取服务端播放链接
-          playData = await fetchHipyPlayUrlHelper(site, flimSource, url);
-          playerUrl = playData.playUrl;
-          script = playData.script;
-          extra = playData.extra;
-          parse = playData.parse;
-          break;
-        case 7:
-          // t3获取服务端播放链接
-          await t3RuleInit(site);
-          playData = await fetchT3PlayUrlHelper(flimSource, url, []);
-          playerUrl = playData.playUrl;
-          script = playData.script;
-          extra = playData.extra;
-          parse = playData.parse;
-          break;
-        case 8:
-          // catvox获取服务端播放链接
-          await catvodRuleInit(site);
-          playData = await fetchCatvodPlayUrlHelper(site, flimSource, url);
-          playerUrl = playData.playUrl;
-          extra = playData.extra;
-          parse = playData.parse;
-          break;
-        case 9:
-          // xbpq获取服务端播放链接
-          await xbpqInit(site);
-          playData = await fetchXBPQPlayUrlHelper(flimSource, url);
-          playerUrl = playData.playUrl;
-          extra = playData.extra;
-          break;
-      }
-      if (!playerUrl) playerUrl = url; // 可能出现处理后是空链接
-      if (analyze) {
-        const resJX = await jxPlay(playerUrl, analyze, snifferMode);
-        playerUrl = resJX.url;
-        isOfficial = resJX.isOfficial;
-      }
+    if (play.url && Array.isArray(play.url)) {
+      play.quality = play.url.reduce((acc, currentValue, index) => {
+        // 检查索引的奇偶性
+        if (index % 2 === 0) {
+          // 奇数索引，当前值是 name
+          acc.push({ name: currentValue, url: play.url[index + 1] });
+        }
+        return acc;
+      }, []);
+      // @ts-ignore
+      play.url = play.quality[0].url;
     }
 
-    if (playerUrl) {
-      const mediaType = await checkMediaType(playerUrl);
+    // 直链直接获取数据类型
+    if (play.url && play.parse === 0) {
+      // 设置代理
+      if (playRes.url.indexOf('http://127.0.0.1:9978/proxy') > -1) {
+        const formatProxyUrl = new URL(playRes.url);
+        const proxyParams = Object.fromEntries(formatProxyUrl.searchParams.entries());
+        const proxyData = await fetchCmsProxy({ sourceId: site.id, ...proxyParams });
+        await setT3Proxy({ text: proxyData, url: proxyParams.url });
+      }
+
+      const mediaType = await mediaUtils.checkMediaType(play.url, play.headers);
       if (mediaType !== 'unknown' && mediaType !== 'error') {
-        data = { url: playerUrl, mediaType, isOfficial, headers };
-        return;
+        data = { ...data, url: play.url, mediaType, headers: play.headers, quality: play.quality };
+        return data;
       }
     }
 
-    // 兜底办法:嗅探
+    //  3. 兜底办法:嗅探
     console.log(`[film_common][playHelper][reveal]尝试提取播放链接`);
-
-    // 自定义嗅探器并且链接正确才有嗅探器api接口前缀
-    const snifferApi =
-      snifferMode.type === 'custom' && /^http/.test(snifferMode.url)
-        ? new URL(snifferMode.url).origin + new URL(snifferMode.url).pathname
-        : '';
-
-    let snifferPlayUrl = `${snifferApi}?url=${playerUrl}`;
-    if (script) snifferPlayUrl += `&script=${script}`
-    if (extra) snifferPlayUrl += `&${extra}`
-    // console.log(`snifferPlayUrl: ${snifferPlayUrl}`);
-    let snifferResult = await sniffer(snifferMode.type, snifferPlayUrl);
-    data.url = snifferResult.data;
+    const snifferResult = await sniffer(
+      play.url,
+      play.sniffer.run_script,
+      play.sniffer.init_script,
+      play.sniffer.custom_regex,
+      play.sniffer.sniffer_exclude,
+    );
     data.headers = snifferResult.headers;
-    data.mediaType = (await checkMediaType(data.url)) || 'm3u8';
-    data.isOfficial = isOfficial;
-
-    console.log(`[film_common][playHelper][return]`, data);
+    data.url = snifferResult.url;
+    data.mediaType = (await mediaUtils.checkMediaType(snifferResult.url, snifferResult.headers)) || 'm3u8';
+    data.quality = play.quality || [];
   } catch (err) {
     console.error(`[film_common][playHelper][error]`, err);
   } finally {
-    console.log(`[film_common][playHelper][end]播放处理流程结束`);
     if (adFlag && data.url && !data.url.startsWith('http://127.0.0.1') && data.mediaType.includes('m3u8')) {
-      // const response = await removeAd(data.url, data.mediaType!, data.headers);
-      // if (response.code === 200) data.url = response?.url;
-      data.url = `http://127.0.0.1:9978/api/v1/lab/removeAd?url=${data.url}`;
-      if (data.headers && Object.keys(data.headers).length > 0) {
-        data.url += '&headers=' + JSON.stringify(data.headers);
-      }
-      data.url += '&type=.m3u8';
-      console.log(`本地代理去广告链接: ${data.url}`);
+      console.log('[film_common][removeAd][start]开始移除广告流程');
+      // data.url = `http://127.0.0.1:9978/api/v1/lab/ad?url=${encodeURI(data.url)}&headers=${JSON.stringify(data.headers || {})}`;
+      const url = encodeURI(data.url);
+      const headers = JSON.stringify(data.headers || {});
+      data.url = `http://127.0.0.1:9978/api/v1/lab/ad?url=${url}&headers=${headers}`;
+      console.log('[film_common][removeAd][end]结束移除广告流程');
     }
+    console.log(`[film_common][playHelper][return]`, data);
+    console.log(`[film_common][playHelper][end]播放处理流程结束`);
     return data;
   }
 };
 
-// EeverseOrder
+/**
+ * 翻转顺序
+ * @param action positive:正序 negative:倒序
+ * @param data 数据
+ */
 const reverseOrderHelper = (action: 'positive' | 'negative', data: Record<string, any[]>): Record<string, any[]> => {
-  const newData = dictDeepClone(data);
+  const newData = JSON.parse(JSON.stringify(data));
 
   if (action === 'positive') {
     console.log('[film_common][reverseOrderHelper]正序');
@@ -376,19 +298,21 @@ const reverseOrderHelper = (action: 'positive' | 'negative', data: Record<string
     console.log('[film_common][reverseOrderHelper]倒序');
     Object.keys(newData).forEach((key) => newData[key].reverse());
   }
-  console.log(newData);
   return newData;
 };
 
-// DouBan Recommend
-const fetchDoubanRecommendHelper = async (info: any): Promise<any[]> => {
+/**
+ * 获取豆瓣推荐
+ * @param info 影视信息
+ */
+const fetchDoubanRecommHelper = async (info: any): Promise<any[]> => {
   console.log('[film_common][fetchDoubanRecommendHelper][start]获取豆瓣推荐流程开启');
   let data: any = [];
 
   try {
     let { vod_name: name, vod_year: year, vod_douban_id: doubanId, vod_douban_type: doubanType } = info;
     if (!year) year = new Date().getFullYear();
-    const recommendNames = await fetchDoubanRecommend(doubanId, doubanType, name, year);
+    const recommendNames = await fetchRecommPage({ id: doubanId, type: doubanType, name, year });
     data = recommendNames || [];
 
     console.log(`[film_common][fetchDoubanRecommendHelper][return]`, data);
@@ -400,214 +324,101 @@ const fetchDoubanRecommendHelper = async (info: any): Promise<any[]> => {
   }
 };
 
-const fetchRecommendSearchHelper = async (site: any, kw: any): Promise<any[]> => {
-  console.log('[film_common][fetchDoubanRecommendHelper][start]推荐搜索流程开启');
-  let data: any = {};
-
+const fetchRecommSearchHelper = async (site: { [key: string]: string | number }, kw: string) => {
+  console.log('[film_common][fetchRecommSearchHelper][start]推荐搜索流程开启');
+  let data = {};
   try {
     if (site.search !== 0) {
-      const response = await fetchSearch(site, kw);
-      if (response.length > 0) {
-        const item = response[0];
-        if (!('vod_play_from' in item && 'vod_play_url' in item)) {
-          [data] = await fetchDetail(site, item.vod_id);
+      const searchRes = await fetchCmsSearch({ sourceId: site.id, kw });
+      if (searchRes && Array.isArray(searchRes.list) && searchRes.list.length > 0) {
+        for (const item of searchRes.list) {
+          if (item.vod_id && item.vod_name) {
+            let data = item;
+
+            if (!data.hasOwnProperty('vod_play_from') || !data.hasOwnProperty('vod_play_url')) {
+              const detailRes = await fetchCmsDetail({ sourceId: site.id, id: item.vod_id });
+              if (detailRes.list.length > 0) {
+                data = detailRes.list[0];
+                break;
+              }
+            } else {
+              continue;
+            }
+          }
         }
       }
     }
-    console.log(`[film_common][fetchRecommendSearchHelper][return]`, data);
+    console.log(`[film_common][fetchRecommSearchHelper][return]`, data);
   } catch (err) {
-    console.log(`[film_common][fetchRecommendSearchHelper][error]`, err);
+    console.error(`[film_common][fetchRecommSearchHelper][error]`, err);
   } finally {
-    console.log(`[film_common][fetchRecommendSearchHelper][end]推荐搜索流程结束`);
-    return data;
+    console.log(`[film_common][fetchRecommSearchHelper][end]推荐搜索流程结束`);
   }
+
+  return data;
 };
 
-// Helper functions
-const fetchHipyPlayUrlHelper = async (
-  site: { [key: string]: any },
-  flag: string,
-  url: string,
-): Promise<{ playUrl: string; script: string; extra: string; parse: boolean }> => {
-  console.log('[film_common][fetchHipyPlayUrlHelper][start]获取服务端播放链接开启');
-  let data: { playUrl: string; script: string; extra: string; parse: boolean } = {
-    playUrl: '',
-    script: '',
-    extra: '',
-    parse: false,
-  };
-
-  try {
-    const playRes = await fetchHipyPlayUrl(site, flag, url);
-    const extra =  playRes?.parse_extra ? `parse_extra='${playRes.parse_extra}&sniffer_exclude = ''` : `''`;
-    data = {
-      playUrl: playRes.url,
-      script: playRes.js ? encodeURIComponent(encodeBase64(playRes.js)) : '',
-      extra: extra || '',
-      parse: Boolean(playRes.parse),
-    };
-    console.log(`[film_common][fetchHipyPlayUrlHelper][return]`, data);
-  } catch (err) {
-    console.log(`[film_common][fetchHipyPlayUrlHelper][error]`, err);
-  } finally {
-    console.log(`[film_common][fetchHipyPlayUrlHelper][end]获取服务端播放链接结束`);
-    return data;
-  }
-};
-
-const fetchT3PlayUrlHelper = async (
-  flag: string,
-  id: string,
-  flags: string[] = [],
-): Promise<{ playUrl: string; script: string; extra: string; parse: boolean }> => {
-  console.log('[film_common][fetchT3PlayUrlHelper][start]获取服务端播放链接开启');
-  let data: { playUrl: string; script: string; extra: string; parse: boolean } = {
-    playUrl: '',
-    script: '',
-    extra: '',
-    parse: false,
-  };
-  try {
-    const playRes = await fetchT3PlayUrl(flag, id, flags);
-    if (playRes?.parse === 0 && playRes?.url.indexOf('http://127.0.0.1:9978/proxy') > -1) {
-      const proxyRes: any = await t3RuleProxy(playRes.url);
-      await setT3Proxy(proxyRes);
-    }
-
-    const extra =  playRes?.parse_extra ? `parse_extra='${playRes.parse_extra}&sniffer_exclude = ''` : `''`;
-
-    data = {
-      playUrl: playRes.url,
-      script: playRes.js ? encodeURIComponent(encodeBase64(playRes.js)) : '',
-      extra: extra || '',
-      parse: Boolean(playRes.parse),
-    };
-    console.log(`[film_common][fetchT3PlayUrlHelper][return]`, data);
-  } catch (err) {
-    console.log(`[film_common][fetchT3PlayUrlHelper][error]`, err);
-  } finally {
-    console.log(`[film_common][fetchT3PlayUrlHelper][end]获取服务端播放链接结束`);
-    return data;
-  }
-};
-
-const fetchCatvodPlayUrlHelper = async (site: { [key: string]: any }, flag: string, id: string): Promise<string> => {
-  console.log('[film_common][fetchCatvodPlayUrlHelper][start]获取服务端播放链接开启');
-  let data: string = '';
-  try {
-    const res = await fetchCatvodPlayUrl(site, flag, id);
-    data = res.url;
-    console.log(`[film_common][fetchCatvodPlayUrlHelper][return]`, data);
-  } catch (err) {
-    console.log(`[film_common][fetchCatvodPlayUrlHelper][error]`, err);
-  } finally {
-    console.log(`[film_common][fetchCatvodPlayUrlHelper][end]获取服务端播放链接结束`);
-    return data;
-  }
-};
-
-const fetchXBPQPlayUrlHelper = async (
-  flag: string,
-  id: string,
-): Promise<{ playUrl: string; extra: string; parse: boolean }> => {
-  console.log('[film_common][fetchXBPQPlayUrlHelper][start]获取服务端播放链接开启');
-  let data: { playUrl: string; extra: string; parse: boolean } = {
-    playUrl: '',
-    extra: '',
-    parse: false,
-  };
-  try {
-    const playRes = await fetchXBPQPlayUrl(flag, id);
-
-    data = {
-      playUrl: playRes.url,
-      extra: playRes?.parse_extra || '',
-      parse: Boolean(playRes.parse),
-    };
-    console.log(`[film_common][fetchXBPQPlayUrlHelper][return]`, data);
-  } catch (err) {
-    console.log(`[film_common][fetchXBPQPlayUrlHelper][error]`, err);
-  } finally {
-    console.log(`[film_common][fetchXBPQPlayUrlHelper][end]获取服务端播放链接结束`);
-    return data;
-  }
-};
-
-const fetchDrpyPlayUrlHelper = async (site: { [key: string]: any }, url: string): Promise<string> => {
-  console.log('[film_common][fetchDrpyPlayUrlHelper][start]免嗅流程开启');
-  let data: string = '';
-  try {
-    const res = await fetchDrpyPlayUrl(site, url);
-    if (res.redirect) {
-      data = res.url;
-      console.log(`[film_common][fetchDrpyPlayUrlHelper][return]`, data);
-    }
-  } catch (err) {
-    console.log(`[film_common][fetchDrpyPlayUrlHelper][error]`, err);
-  } finally {
-    console.log(`[film_common][fetchDrpyPlayUrlHelper][end]免嗅流程结束`);
-    return data;
-  }
-};
-
-const fetchJxJsonPlayUrlHelper = async (playUrl: string, url: string): Promise<string> => {
-  console.log('[film_common][fetchJxJsonPlayUrlHelper][start]json解析流程开启');
-  let data: string = '';
-  try {
-    const res = await getConfig(`${playUrl}${url}`);
-    // 存在 url data.url 两种结构
-    if (jsonpath.value(res, '$.url')) {
-      data = jsonpath.value(res, '$.url');
-      console.log(`[film_common][fetchJxJsonPlayUrlHelper][return]`, data);
-    }
-  } catch (err) {
-    console.log(`[film_common][fetchJxJsonPlayUrlHelper][error]`, err);
-  } finally {
-    console.log(`[film_common][fetchJxJsonPlayUrlHelper][end]json解析流程结束`);
-    return data;
-  }
-};
-
-const fetchJxWebPlayUrlHelper = async (type: string, url: string): Promise<string> => {
-  console.log('[detail][fetchJxWebPlayUrlHelper][start]官解流程开启');
-  let data: string = '';
-  try {
-    const res = await sniffer(type, url);
-    data = res.data;
-    console.log(`[film_common][fetchJxWebPlayUrlHelper][return]`, data);
-  } catch (err) {
-    console.log(`[film_common][fetchJxWebPlayUrlHelper][error]`, err);
-  } finally {
-    console.log(`[film_common][fetchJxWebPlayUrlHelper][end]官解流程结束`);
-    return data;
-  }
-};
-
-// 格式化剧集名称
+/**
+ * 格式化剧集名称
+ * @param item 剧集名称
+ * @returns 剧集名称
+ */
 const formatName = (item: string): string => {
   const [first] = item.split('$');
   return first.includes('http') ? '正片' : first;
 };
 
-// 格式化剧集集数
+/**
+ * 格式化剧集集数
+ * @param item 剧集集数
+ * @returns 剧集集数
+ */
 const formatIndex = (item: string): { index: string; url: string } => {
   const [index, url] = item.split('$');
   return { index, url };
 };
 
-// 格式化style
-const formatContent = (item: string | undefined | null): string => {
-  if (!item) return '';
-  return item!.replace(/style\s*?=\s*?([‘"])[\s\S]*?\1/gi, '');
+/**
+ * 格式化style
+ * @param text 文本
+ * @param keyword 关键字
+ * @returns 文本
+ */
+const formatContent = (text: string | undefined | null, keyword: string): string => {
+  if (!text) return '';
+  let res = text;
+  // 创建一个正则表达式来匹配关键字后面的内容
+  const regex = new RegExp(`${keyword}[：:]\\s*([^\\n]+)`, 'i');
+  // 执行匹配
+  const match = text.match(regex);
+
+  // 如果匹配成功，清理并返回结果
+  if (match && match[1]) {
+    // 去除可能的多余空格和换行符，并分割成数组
+    const names = match[1]
+      .split(/,\s*/)
+      .map((name) => name.trim())
+      .filter((name) => name);
+    res = names.join(' ');
+  } else {
+    // 如果没有匹配到关键字，返回空字符串
+    res = '';
+  }
+  return res.replace(/style\s*?=\s*?([‘"])[\s\S]*?\1/gi, '');
 };
 
-// 获取播放源及剧集
-const formatSeason = (videoList: Record<string, any>): Record<string, any> => {
+/**
+ * 格式化剧集
+ * @param videoList 剧集信息
+ * @returns 剧集信息
+ */
+const formatSeason = (videoList: Record<string, any>) => {
   console.log('[film_common][formatSeason][start]剧集格式化流程开启');
-  let data: any = {
-    报错: ['格式化报错$f12查看更多报错信息'],
+  let data: { [key: string]: any[] } = {
+    error: ['formatError$seeMoreErrorMessageForF12'],
   };
   try {
+    if (!videoList['vod_play_from'] || !videoList['vod_play_url']) return;
     // 分离播放源
     const playFrom = videoList['vod_play_from'];
     const playSources = playFrom.split('$').filter(Boolean);
@@ -625,7 +436,7 @@ const formatSeason = (videoList: Record<string, any>): Record<string, any> => {
       );
 
     // 构建完整列表
-    const fullList: Record<string, string[]> = playSources.reduce((acc, source, index) => {
+    const fullList = playSources.reduce((acc, source, index) => {
       acc[source] = episodesBySource[index];
       return acc;
     }, {});
@@ -640,7 +451,13 @@ const formatSeason = (videoList: Record<string, any>): Record<string, any> => {
   }
 };
 
-// 格式化倒序集数
+/**
+ * 格式化倒序集数
+ * @param action 操作类型 positive:正序 negative:倒序
+ * @param current 当前集数
+ * @param total 总集数
+ * @returns 集数
+ */
 const formatReverseOrder = (action: 'positive' | 'negative', current: number, total: number) => {
   // 当前 0 总 37 正序 1 倒序 37
   // 当前 1 总 37 正序 2 倒序 36
@@ -649,25 +466,53 @@ const formatReverseOrder = (action: 'positive' | 'negative', current: number, to
   return 1;
 };
 
-const fetchBarrageData = async (realUrl: string, options, active): Promise<any> => {
+/**
+ * 获取弹幕
+ * @param realUrl 播放链接
+ * @param options 弹幕配置
+ * @param active 当前选中线路
+ * @returns 弹幕
+ */
+const fetchBarrageData = async (
+  realUrl: string,
+  options: { url: string, id: string | number, key: string, support: string[], start: number, mode: number, color: number, content: number },
+  active: { flimSource: string, filmIndex: string },
+): Promise<{ barrage: string[], id: string | number | null }> => {
   console.log('[film_common][fetchBarrageData][start]获取弹幕流程开启');
-  let data: any = [];
+  let data: any = { barrage: [], id: null };
+
   try {
-    const { url, key, support, start, mode, color, content } = options;
+    if (!realUrl || !/^(https?:\/\/)/.test(realUrl)) return data;
+    // 去除参数
+    const { origin, pathname, hostname } = new URL(realUrl);
+    realUrl = `${origin}${pathname}`;
 
-    if (!(url && key && support && start && mode && color && content)) return;
-    if (!_.some(support, (source) => source === active.flimSource)) return;
+    const { flimSource } = active;
+    const { url, id, key, support, start, mode, color, content } = options;
 
-    const sourceUrl = formatIndex(active.filmIndex).url;
-    if (sourceUrl.startsWith('http')) {
-      const { hostname } = new URL(sourceUrl);
-      if (VIP_LIST.some((item) => hostname.includes(item))) realUrl = sourceUrl;
+    // 分组条件
+    const isValidUrl = typeof url === 'string' && /^(https?:\/\/)/.test(url);
+    const isValidId = id && ['string', 'number'].includes(typeof id);
+    const isValidKey = typeof key === 'string' && key.length > 0;
+    const isValidSupport = (Array.isArray(support) && support.length > 0 && support.includes(flimSource)) || VIP_LIST.some((domain) => hostname.includes(domain));
+    const isValidNumbers = [start, mode, color, content].every(value => typeof value === 'number');
+    // 综合判断
+    if (isValidUrl && isValidId && isValidKey && isValidSupport && isValidNumbers) {
+      const res = await fetchConfig({ url: `${url}${realUrl}`, method: 'GET' });
+      let formatId = res.data?.[id] || null;
+      if (formatId && /^(https?:\/\/)/.test(formatId)) formatId = hash['md5-16'](formatId);
+      const barrageRes = res.data?.[key] || [];
+      if (Array.isArray(barrageRes) && barrageRes.length !== 0) {
+        const formatBarrage: any[] = barrageRes.map((item) => ({
+          text: item[content],
+          time: parseInt(item[start]),
+          color: item[color],
+          mode: item[mode],
+        }));
+        data = { barrage: formatBarrage, id: formatId };
+      }
     }
-
-    const configRes = await getConfig(`${url}${realUrl}`);
-    if (!configRes[key] || configRes[key].length === 0) return;
-
-    data = configRes.danmuku;
+    console.log(`[film_common][fetchBarrageData][return]`, data);
   } catch (err) {
     console.log(`[film_common][fetchBarrageData][error]`, err);
   } finally {
@@ -676,22 +521,63 @@ const fetchBarrageData = async (realUrl: string, options, active): Promise<any> 
   }
 };
 
+/**
+ * 获取解析
+ * @param url 播放链接
+ * @param type 解析类型
+ * @returns 解析
+ */
+const fetchAnalyzeHelper = async (url: string, type: number) => {
+  console.log('[film_common][fetchAnalyzeHelper][start]获取解析流程开启');
+  let data: { [key: string]: any } = { url: '', originalUrl: url, mediaType: undefined, headers: {} };
+
+  try {
+    const play = { playUrl: '', headers: {} };
+
+    if (type == 1) {
+      const resOfficial = await fetchConfig({ url, method: 'GET' });
+      const paeseOfficial = JSONPath({ path: '$.url', json: resOfficial.data });
+      if (paeseOfficial.length > 0) {
+        play.playUrl = paeseOfficial[0];
+        play.headers = resOfficial.headers;
+      }
+    } else if (type == 0) {
+      const resOfficial = await sniffer(url);
+      if (resOfficial.url) {
+        play.playUrl = resOfficial.url;
+        play.headers = resOfficial.headers;
+      }
+    }
+
+    if (play.playUrl) {
+      const mediaType = await mediaUtils.checkMediaType(play.playUrl, play.headers);
+      if (mediaType !== 'unknown' && mediaType !== 'error') {
+        data = { url: play.playUrl, originalUrl: url, mediaType, headers: play.headers };
+      }
+    }
+  } catch (err) {
+    console.error(`[film_common][fetchAnalyzeHelper][error]`, err);
+  } finally {
+    console.log(`[film_common][fetchAnalyzeHelper][end]获取解析流程结束`);
+    return data;
+  }
+};
+
 export {
   VIP_LIST,
-  fetchJxJsonPlayUrlHelper,
   fetchBingeData,
   putBingeData,
   fetchHistoryData,
   putHistoryData,
-  fetchAnalyzeData,
   fetchBarrageData,
   playHelper,
   reverseOrderHelper,
-  fetchDoubanRecommendHelper,
-  fetchRecommendSearchHelper,
+  fetchDoubanRecommHelper,
+  fetchRecommSearchHelper,
   formatName,
   formatIndex,
   formatContent,
   formatSeason,
   formatReverseOrder,
+  fetchAnalyzeHelper,
 };

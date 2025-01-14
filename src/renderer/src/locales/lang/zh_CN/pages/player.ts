@@ -1,12 +1,16 @@
 export default {
+  noApi: '无接口',
+  noData: '无数据',
   header: {
     backMain: '回到主界面',
   },
   film: {
     desc: '简介',
+    background: '背景',
     like: '收藏',
     download: '下载',
     share: '分享',
+    setting: '设置',
     analyze: '解析',
     anthology: '选集',
     line: '线路',
@@ -18,6 +22,7 @@ export default {
   iptv: {
     epg: '节目',
     channel: '频道',
+    group: '分组',
   },
   drive: {
     anthology: '选集',
@@ -39,6 +44,7 @@ export default {
     sniiferError: '嗅探失败,请换源',
     noDefaultAnalyze: '未配置默认解析,自行选择解析线路',
     noRecommendSearch: '该源未找到相关推荐,不执行本次切换',
+    noPlayUrl: '播放地址获取失败,请换源或线路',
     next: '请稍候,正在切换下集',
   },
   placeholder: {
@@ -46,12 +52,13 @@ export default {
   },
   setting: {
     title: '设置',
-    autoSkip: '跳片头片尾',
-    autoNext: '预加载下一集',
+    skipHeadAndEnd: '跳进度',
+    playNextEnabled: '续下集',
+    playNextPreload: '预加载',
     skipStart: '开始',
     skipEnd: '结束',
     skipSeconds: '秒',
-    skipAd: '跳广告',
+    skipAd: '过广告',
     tip: '开关全局生效',
   },
   download: {

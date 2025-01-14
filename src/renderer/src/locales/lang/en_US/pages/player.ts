@@ -1,12 +1,16 @@
 export default {
+  noApi: 'NoApi',
+  noData: 'NoData',
   header: {
     backMain: 'BackToMain',
   },
   film: {
     desc: 'Desc',
-    like: 'like',
-    download: 'download',
-    share: 'share',
+    background: '背景',
+    like: 'Like',
+    download: 'Down',
+    share: 'Share',
+    setting: 'Setting',
     analyze: 'Analyze',
     anthology: 'Anthology',
     line: 'Line',
@@ -18,6 +22,7 @@ export default {
   iptv: {
     epg: 'EPG',
     channel: 'Channel',
+    group: 'Group',
   },
   drive: {
     anthology: 'Anthology',
@@ -39,6 +44,7 @@ export default {
     official: 'Analyze completed, data is derived from {0}',
     noDefaultAnalyze: 'Not set default, Choose your own analysis line',
     noRecommendSearch: 'No recommendation found for this source,  Switch is not performed',
+    noPlayUrl: 'Play address acquisition failed, please change the source or line',
     next: 'One moment, Switching next',
   },
   placeholder: {
@@ -46,12 +52,13 @@ export default {
   },
   setting: {
     title: 'Setting',
-    autoSkip: 'Skip start and end',
-    autoNext: 'Preload next episode',
+    skipHeadAndEnd: 'SkipTime',
+    playNextEnabled: 'AutoNext',
+    playNextPreload: 'Preload',
     skipStart: 'Start',
     skipEnd: 'End',
     skipSeconds: 'S',
-    skipAd: 'Skip ads',
+    skipAd: 'SkipAd',
     tip: 'The switch takes effect globally.',
   },
   download: {

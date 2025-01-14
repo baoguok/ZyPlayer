@@ -10,6 +10,7 @@ const { platform } = process;
 
 <style lang="less" scoped>
 .system-controls {
+  z-index: 1;
   position: relative;
   width: 102px;
   height: 100%;
@@ -18,7 +19,7 @@ const { platform } = process;
   border-radius: var(--td-radius-default);
   --tb-control-height: 32px;
   --tb-control-hover-color: var(--td-bg-color-container-hover);
-  --tb-control-symbol-color: rgba(132, 133, 141, 0.8);
-  --tb-control-close-symbol-color: rgba(132, 133, 141, 0.8);
+  --tb-control-symbol-color: var(--td-text-color-placeholder);
+  --tb-control-close-symbol-color: var(--td-text-color-placeholder);
 }
 </style>

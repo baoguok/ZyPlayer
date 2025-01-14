@@ -26,22 +26,11 @@ export function delDebugSource() {
   });
 }
 
-export function fetchStream(url) {
+export function fetchDelAdStream(doc) {
   return request({
-    url: `/v1/lab/removeAd/${url}`,
+    url: `/v1/lab/ad`,
     method: 'GET',
-  });
-}
-
-export function setStream(url, type, headers: object | null = null) {
-  return request({
-    url: `/v1/lab/removeAd`,
-    params: {
-      url,
-      type,
-      headers,
-    },
-    method: 'GET',
+    params: doc,
   });
 }
 
@@ -51,5 +40,50 @@ export function fetchAiAnswer(docs) {
     method: 'post',
     data: docs,
     timeout: getPinia('setting', 'timeout') * 2,
+  });
+}
+
+export function fetchStaticFilterFilter(doc) {
+  return request({
+    url: `/v1/lab/static-filter/filter`,
+    method: 'POST',
+    data: doc,
+  });
+}
+
+export function fetchStaticFilterCategory(doc) {
+  return request({
+    url: `/v1/lab/static-filter/category`,
+    method: 'POST',
+    data: doc,
+  });
+}
+
+export function fetchJsEditPdfa(doc) {
+  return request({
+    url: `/v1/lab/js-edit/pdfa`,
+    method: 'POST',
+    data: doc,
+  });
+}
+
+export function fetchJsEditPdfh(doc) {
+  return request({
+    url: `/v1/lab/js-edit/pdfh`,
+    method: 'POST',
+    data: doc,
+  });
+}
+export function fetchJsEditMuban() {
+  return request({
+    url: `/v1/lab/js-edit/muban`,
+    method: 'POST',
+  });
+}
+
+export function fetchJsEditDebug() {
+  return request({
+    url: `/v1/lab/js-edit/debug`,
+    method: 'GET',
   });
 }

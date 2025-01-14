@@ -1,16 +1,21 @@
 <template>
-  <div :class="['common-nav', isVisible.show ? 'show' : 'hidden']">
-    <div class="nav-sub" :style="{ display: isVisible.show ? 'block' : 'none' }">
+  <div :class="['common-nav', active.show ? 'show' : 'hidden']">
+    <div v-show="active.show" class="nav-sub">
       <div class="nav-sub-tab nav-sub-tab-header">
-        <div class="header" v-if="!isVisible.search">
+        <div class="header" v-if="!active.search">
           <p class="title">{{ title }}</p>
           <t-popup :content="$t('pages.search.searchSource')">
-            <data-search-icon size="large" class="icon" v-if="search" @click="isVisible.search = true" />
+            <data-search-icon size="large" class="icon" v-if="search" @click="active.search = true" />
           </t-popup>
         </div>
-        <div class="search" v-if="isVisible.search" ref="headerOutsideRef">
-          <t-input :placeholder="$t('pages.setting.placeholder.general')" autofocus clearable v-model="searchText"
-            @change="searchEvent">
+        <div class="search" v-if="active.search" ref="headerOutsideRef">
+          <t-input
+            v-model="searchText"
+            autofocus
+            clearable
+            :placeholder="$t('pages.setting.placeholder.general')"
+            @change="handleSearch"
+          >
             <template #suffixIcon>
               <search-icon :style="{ cursor: 'pointer' }" />
             </template>
@@ -18,31 +23,57 @@
         </div>
       </div>
       <div class="nav-sub-tab nav-sub-tab-content">
-        <div class="nav-sub-tab-top" ref="contentRef">
-          <ul class="nav-menu">
-            <li class="nav-menu-item" :class="`${activeData}` === `${item.id}` ? 'is-active' : ''"
-              v-for="item in listData" :key="item.id" :value="item.id" @click="handleItemClick(item.id)"
-              @contextmenu="conButtonClick(item, $event)">
-              <t-tooltip :content="item.name">
-                <div class="name-wrapper">
-                  <span>{{ item.name }}</span>
-                </div>
+        <div class="nav-sub-tab-top">
+          <t-list
+            ref="listRef"
+            :scroll="{
+              type: 'virtual',
+              bufferSize: 10,
+              rowHeight: 42,
+              threshold: 12
+            }"
+            class="nav-menu"
+          >
+            <t-list-item v-for="(item, index) in listData" :key="index" :class="[activeData === item.id ? 'is-active' : '']">
+              <t-tooltip :content="item.name" destroy-on-close>
+                <t-list-item-meta :description="item.name" @click="handleItemClick(item.id)" @contextmenu="conButtonClick(item, $event)" />
               </t-tooltip>
-            </li>
-          </ul>
+            </t-list-item>
+          </t-list>
         </div>
         <div class="nav-sub-tab-bottom">
+          <t-swiper
+            class="nav-swiper"
+            :duration="300"
+            :interval="5000"
+            :stopOnHover="false"
+            :navigation="{ showSlideBtn: 'never' }"
+          >
+            <t-swiper-item v-for="item in AD_LIST">
+              <t-image
+                :src="item.img"
+                fit="cover"
+                :style="{
+                  width: '100%',
+                  height: '80px',
+                  borderRadius: 'var(--td-radius-default)',
+                  cursor: 'pointer'
+                }"
+                @click="handleOpenUrl(item.url)"
+              />
+            </t-swiper-item>
+          </t-swiper>
           <slot name="customize"></slot>
         </div>
       </div>
     </div>
 
-    <div class="nav-sub-tab-line" @click="isVisible.show = !isVisible.show">
+    <div class="nav-sub-tab-line" @click="active.show = !active.show">
       <div class="nav-sub-tab-line-0"></div>
       <div class="nav-sub-tab-line-1"></div>
     </div>
 
-    <context-menu v-model:show="isVisible.contentMenu" :options="optionsComponent" v-if="contextMenuItems">
+    <context-menu v-model:show="active.contentMenu" :options="optionsComponent" v-if="contextMenuItems">
       <template v-for="(menuItem, index) in contextMenuItems" :key="index">
         <context-menu-item v-if="menuItem.type === 'item'" :label="menuItem.label" @click="menuItem.handler" />
         <context-menu-separator v-if="menuItem.type === 'separator'" />
@@ -62,12 +93,29 @@ import '@imengyu/vue3-context-menu/lib/vue3-context-menu.css';
 
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator, ContextMenuGroup } from '@imengyu/vue3-context-menu';
 import { onClickOutside } from '@vueuse/core';
-import Scrollbar from 'smooth-scrollbar';
+import { ListInstanceFunctions } from 'tdesign-vue-next';
 import { DataSearchIcon, SearchIcon } from 'tdesign-icons-vue-next';
-import { onMounted, computed, reactive, ref, watch } from 'vue';
-
+import { computed, ref, watch, useTemplateRef, onActivated } from 'vue';
 import { useSettingStore } from '@/store';
+
+import spAdImg from '@/assets/ad/sp.png';
+import rainCloudAdImg from '@/assets/ad/raincloud.png';
+
+
 const storeSetting = useSettingStore();
+
+const AD_LIST = [
+  {
+    id: 'rainCloud',
+    url: 'https://www.rainyun.com/hiram_?s=zyfun',
+    img: rainCloudAdImg,
+  },
+  {
+    id: 'sp',
+    url: 'https://www.sourcepower.top',
+    img: spAdImg,
+  }
+];
 
 const props = withDefaults(defineProps<{
   title: string;
@@ -94,10 +142,10 @@ const props = withDefaults(defineProps<{
 const activeData = ref(props.active);
 const listData = ref(props.list);
 const contextMenuItems = ref(props.contextMenuItems);
-const contentRef = ref(null);
+const listRef = useTemplateRef<ListInstanceFunctions>('listRef');
 const headerOutsideRef = ref(null);
 const searchText = ref('');
-const isVisible = reactive({
+const active = ref({
   contentMenu: false,
   search: false,
   show: true
@@ -113,14 +161,13 @@ const optionsComponent = ref({
   theme: mode.value === 'light' ? 'default' : 'mac dark',
 });
 
-onMounted(() => {
-  Scrollbar.init(contentRef.value!);
-});
+const emit = defineEmits(['changeKey', 'contextMenu']);
 
 watch(
   () => props.active,
   (val) => {
     activeData.value = val;
+    handleScroll();
   },
 );
 
@@ -128,6 +175,7 @@ watch(
   () => props.list,
   (val) => {
     listData.value = val;
+    handleScroll();
   },
 );
 
@@ -138,29 +186,48 @@ watch(
   },
 );
 
-const emit = defineEmits(['changeKey', 'contextMenu']);
+onActivated(() => {
+  handleScroll();
+});
+
 
 if (props.search) {
   onClickOutside(headerOutsideRef, () => {
-    isVisible.search = false;
+    active.value.search = false;
   })
 }
 
 const conButtonClick = (item: any, { x, y }: any) => {
-  isVisible.contentMenu = true;
+  active.value.contentMenu = true;
   Object.assign(optionsComponent.value, { x, y });
   emit('contextMenu', { ...item });
 };
 
 const handleItemClick = (key: string | number) => {
-  console.log(`[nav] clicked key: ${key}`);
+  console.log(`[common-nav] active key: ${key}`);
   emit('changeKey', key);
 };
 
-const searchEvent = () => {
-  listData.value = props.list.filter((item) => {
-    return item.name.toLowerCase().includes(searchText.value.toLowerCase());
+const handleSearch = () => {
+  listData.value = props.list.filter(item => item.name.toLowerCase().includes(searchText.value.toLowerCase()));
+};
+
+const handleScroll = () => {
+  if (!listRef.value || !activeData.value || listData.value.length === 0) return;
+
+  let index = listData.value.findIndex((item) => item.id === activeData.value) - 1;
+  if (index < 0) return;
+  console.log(`[common-nav] scroll to index: ${index}`);
+
+  listRef.value?.scrollTo({
+    index,
+    behavior: 'smooth',
   });
+};
+
+const handleOpenUrl = (url: string) => {
+  if (!/^(https?:\/\/)/.test(url)) return;
+  window.electron.ipcRenderer.send('open-url', url);
 };
 </script>
 
@@ -169,19 +236,20 @@ const searchEvent = () => {
   height: 100%;
   width: fit-content;
   position: relative;
-  padding-right: var(--td-comp-margin-s);
+  transition: padding .2s ease-in-out;
 
   .nav-sub {
     height: 100%;
-    min-width: 162px;
-    // width: fit-content;
-    padding: var(--td-comp-paddingTB-xs) 0;
+    width: 162px;
+    padding: var(--td-comp-paddingTB-s) 0;
     background-color: var(--td-bg-color-container);
     border-radius: var(--td-radius-default);
-    transition: all .3s ease;
+    display: flex;
+    flex-direction: column;
+    gap: var(--td-size-4);
 
     .nav-sub-tab-header {
-      margin: var(--td-comp-margin-m) 0 var(--td-comp-margin-s) var(--td-comp-margin-s);
+      margin-left: var(--td-comp-margin-s);
 
       .header {
         display: flex;
@@ -224,28 +292,26 @@ const searchEvent = () => {
       flex-direction: column;
       align-items: flex-start;
       justify-content: space-between;
-      height: calc(100% - var(--td-comp-margin-s) - var(--td-comp-margin-m) - 32px);
+      flex: 1;
+      overflow: hidden;
 
       .nav-sub-tab-top {
-        // overflow-y: auto;
-        // overflow-x: hidden;
+        overflow-y: auto;
+        overflow-x: hidden;
         width: 100%;
-        // padding-left: var(--td-comp-paddingTB-s);
+        height: 100%;
+        padding-left: var(--td-comp-paddingLR-s);
 
         .nav-menu {
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          align-items: center;
-          font-size: 14px;
-          line-height: 1.5;
+          width: 100%;
+          height: 100%;
 
-          .nav-menu-item {
-            width: 148px;
-            height: 40px;
+          :deep(.t-list-item) {
+            width: 146px;
+            cursor: pointer;
+            padding: 0;
             transition: background-color .3s ease;
             border-radius: var(--td-radius-medium);
-
 
             &:not(:first-child) {
               margin-top: var(--td-comp-margin-xs);
@@ -255,26 +321,25 @@ const searchEvent = () => {
               background-color: var(--td-bg-content-hover-2);
             }
 
-            .name-wrapper {
-              height: 100%;
-              width: 100%;
-              padding: 0 var(--td-comp-paddingTB-s);
-              line-height: 14px;
-              display: flex;
-              align-items: center;
-              color: var(--td-text-color-primary);
-              cursor: pointer;
-
-              span {
+            .t-list-item-main {
+              .t-list-item__meta {
                 overflow: hidden;
-                display: inline-block;
-                white-space: nowrap;
-                // text-overflow: ellipsis;
+                display: block;
+                width: 100%;
+                padding: var(--td-comp-paddingTB-s) 0 var(--td-comp-paddingTB-s) var(--td-comp-paddingLR-m);
+                margin-right: var(--td-comp-paddingLR-m);
+
+                .t-list-item__meta-description {
+                  margin-right: 0;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                }
               }
             }
           }
 
-          .is-active {
+          :deep(.is-active) {
             background-color: var(--td-bg-content-active-2);
           }
         }
@@ -285,13 +350,26 @@ const searchEvent = () => {
         display: flex;
         align-items: center;
         flex-direction: column;
-        padding-top: var(--td-comp-paddingTB-xs);
+        padding: var(--td-comp-paddingTB-xs) var(--td-comp-paddingLR-s) 0;
+
+        .nav-swiper {
+          border-radius: var(--td-radius-default);
+          overflow: hidden;
+
+          :deep(.t-swiper__navigation-bars) {
+            .t-swiper__navigation-item{
+              padding: var(--td-comp-paddingTB-xxs) 0;
+            }
+          }
+        }
       }
     }
   }
 }
 
 .show {
+  padding-right: var(--td-comp-margin-s);
+
   .nav-sub-tab-line {
     width: 12px;
     height: 26px;
@@ -353,6 +431,8 @@ const searchEvent = () => {
 }
 
 .hidden {
+  padding-right: 0;
+
   .nav-sub-tab-line {
     width: 12px;
     height: 26px;

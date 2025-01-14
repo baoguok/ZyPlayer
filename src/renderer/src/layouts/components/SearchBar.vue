@@ -1,7 +1,6 @@
 <template>
-  <div class="search-bar"
-    v-if="route.name === 'FilmIndex' || route.name === 'IptvIndex' || route.name === 'AnalyzeIndex'">
-    <t-popup placement="bottom-right" :visible="isVisible.popup" :on-visible-change="popupVisibleEvent">
+  <div class="search-bar" v-if="route.name === 'FilmIndex' || route.name === 'IptvIndex' || route.name === 'AnalyzeIndex'">
+    <t-popup placement="bottom-right" :visible="active.popup" :on-visible-change="popupVisibleEvent">
       <t-input :placeholder="$t('pages.search.searchPlaceholder')" class="search-input" clearable v-model="searchValue"
         :on-enter="searchEvent" :on-click="focusEvent" @clear="searchEvent(searchValue)">
         <template #label>
@@ -27,7 +26,7 @@
             </div>
             <div class="history-content">
               <t-tag class="nav-item" shape="round" variant="outline" v-for="(item, index) in searchList" :key="index"
-                @click="searchEvent(item.title)">{{ item.title }}</t-tag>
+                @click="searchEvent(item.videoName)">{{ item.videoName }}</t-tag>
             </div>
           </div>
           <div class="hot">
@@ -37,8 +36,8 @@
                 }}</span>
             </div>
             <div class="hot-content">
-              <t-skeleton :row-col="rowCol" :loading="isVisible.load"></t-skeleton>
-              <div v-if="!isVisible.load">
+              <t-skeleton :row-col="rowCol" :loading="active.hotLoad"></t-skeleton>
+              <div v-if="!active.hotLoad">
                 <div v-if="hotConfig.hotData.length !== 0" class="hot-data">
                   <div v-for="(item, index) in hotConfig.hotData" :key="item.vod_id" class="rax-view-v2 hot-item"
                     @click="searchEvent(item.vod_name)">
@@ -62,61 +61,54 @@
 </template>
 
 <script setup lang="ts">
-import _ from 'lodash';
 import moment from 'moment';
 import { DeleteIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import emitter from '@/utils/emitter';
-import { komectHot, doubanHot, kyLiveHot, enlightentHot } from '@/utils/hot';
-import { fetchHistoryList, clearHistorySearchList, addHistory } from '@/api/history';
+import { fetchHistoryPage, delHistory, addHistory } from '@/api/history';
 import { fetchSettingDetail } from '@/api/setting';
+import { fetchHotPage } from '@/api/site';
 
 import CONFIG from '@/config/hotClass';
-import emptyImage from '@/assets/empty.svg?raw';
 
 const route = useRoute();
 
-const isVisible = reactive({
-  load: true,
-  popup: false
-});
-const active = reactive({
-  type: 'group',
+const active = ref({
   filmGroupType: 'site',
   filmFilterType: 'off',
-  flag: ''
+  flag: '',
+  hotType: '',
+  setLoad: false,
+  hotLoad: true,
+  popup: false
 });
 const hotConfig = reactive({
-  hotType: '',
   hotName: '',
   hotUrl: '',
   hotClass: 'episode',  // 仅酷云[旧]生效
   hotSource: 1,
   hotUpdateTime: moment().format('YYYY-MM-DD'),
   hotData: [],
-  hotOption: [] || {},
+  hotOption: [],
 }) as any;
-const searchList = ref([]) as any;
-const searchValue = ref('');
+const searchList = ref<any []>([]);
+const searchValue = ref<string>('');
 const activeRouteName = computed(() => route.name);
 
 watch(
   () => activeRouteName.value, async (newVal) => {
-    if (newVal === 'FilmIndex') await getFilmSearhConfig();
+    if (newVal === 'FilmIndex' && !active.value.setLoad) await getFilmSet();
     searchValue.value = '';
+    active.value.popup = false;
+    active.value.hotLoad = true;
   }
 );
 
 onMounted(async () => {
-  if (activeRouteName.value === 'FilmIndex') await getFilmSearhConfig();
-});
-
-onActivated(() => {
-  const isListenedRefreshHotConfig = emitter.all.get('refreshHotConfig');
-  if (!isListenedRefreshHotConfig) emitter.on('refreshHotConfig', refreshHotConfig);
+  if (activeRouteName.value === 'FilmIndex' && !active.value.setLoad) await getFilmSet();
 });
 
 const rowCol = [
@@ -129,20 +121,24 @@ const rowCol = [
 const focusEvent = async () => {
   if (activeRouteName.value === 'FilmIndex' || activeRouteName.value === 'AnalyzeIndex') {
     getSearchHistory();
-    getSetConfig();
-    isVisible.popup = true;
+    getHotList();
+    active.value.popup = true;
   }
 };
 
 // 获取搜索历史
 const getSearchHistory = async () => {
-  const res = await fetchHistoryList(0, 5, 'search');
-  searchList.value = res.data;
+  const res = await fetchHistoryPage({
+    page: 1,
+    pageSize: 5,
+    type: 'search'
+  });
+  if (res.hasOwnProperty('list')) searchList.value = res.list;
 }
 
 // 清空搜索历史
 const clearSearchHistory = async () => {
-  await clearHistorySearchList();
+  await delHistory({ type: 'search' });
   searchList.value = [];
 }
 
@@ -170,37 +166,47 @@ const hotTypeMappings = {
   },
 };
 
-const getFilmSearhConfig = async () => {
-  const searchResponse = await fetchSettingDetail('defaultSearchType');
-  active.filmGroupType = searchResponse?.value || 'group';
-  const filterResponse = await fetchSettingDetail('defaultFilterType');
-  active.filmFilterType = filterResponse?.value || 'off';
+const getSearchTypeSet = async () => {
+  const searchRes = await fetchSettingDetail('defaultSearchType');
+  if (searchRes) active.value.filmGroupType = searchRes;
+  else active.value.filmGroupType = 'group';
 };
 
-// 获取设置配置
-const getSetConfig = async () => {
-  const res = await fetchSettingDetail('defaultHot');
-  const hotType = res.value;
+const getFilterTypeSet = async () => {
+  const filterRes = await fetchSettingDetail('defaultFilterType');
+  if (filterRes) active.value.filmFilterType = filterRes ;
+  else active.value.filmFilterType = 'off';
+};
 
-  hotConfig.hotType = hotType;
-  if (hotType in hotTypeMappings) {
-    const { hotUpdateTime, hotSource } = hotTypeMappings[hotType];
-    hotConfig.hotUpdateTime = hotUpdateTime();
-    hotConfig.hotSource = hotSource;
-    hotConfig.hotName = CONFIG[hotType].name;
-    hotConfig.hotUrl = CONFIG[hotType].url;
-    hotConfig.hotOption = CONFIG[hotType].data;
-    active.flag = hotConfig.hotOption[0].key;
+const getHotSet = async () => {
+  const hotRes = await fetchSettingDetail('defaultHot');
+  if (hotRes) {
+    active.value.hotType = hotRes;
+    if (hotRes in hotTypeMappings) {
+      const { hotUpdateTime, hotSource } = hotTypeMappings[hotRes];
+      hotConfig.hotUpdateTime = hotUpdateTime();
+      hotConfig.hotSource = hotSource;
+      hotConfig.hotName = CONFIG[hotRes].name;
+      hotConfig.hotUrl = CONFIG[hotRes].url;
+      hotConfig.hotOption = CONFIG[hotRes].data;
+      active.value.flag = hotConfig.hotOption[0].key;
+    }
   }
+};
 
-  getHotList();
-}
+const getFilmSet = async () => {
+  try {
+    await Promise.all([getSearchTypeSet(), getFilterTypeSet(), getHotSet()]);
+  } finally {
+    active.value.setLoad = true;
+  }
+};
 
 // 切换数据源
 const changeHotSource = (flag) => {
   hotConfig.hotSource = flag;
-  active.flag = flag;
-  isVisible.load = true;
+  active.value.flag = flag;
+  active.value.hotLoad = true;
   hotConfig.hotData = [];
   getHotList();
 };
@@ -210,33 +216,53 @@ const getHotList = async (retryCount = 1) => {
   try {
     const retryLimit = 4; // 重试次数 实际为 3 次
     const date = moment().subtract(retryCount, 'days');
-    const dateFormat = hotConfig.hotType === 'enlightent' ? date.format('YYYY/MM/DD') : date.format('YYYY-MM-DD');
+    const type = active.value.hotType;
+    const dateFormat = type === 'enlightent' ? date.format('YYYY/MM/DD') : date.format('YYYY-MM-DD');
 
-    let queryHotList;
-    switch (hotConfig.hotType) {
+    let queryHotDoc = {};
+    switch (type) {
       case 'kylive':
-        queryHotList = await kyLiveHot(dateFormat, 2, hotConfig.hotSource);
+        queryHotDoc = {
+          date: dateFormat,
+          type: 2,
+          plat: hotConfig.hotSource
+        };
         break;
       case 'enlightent':
-        queryHotList = await enlightentHot(dateFormat, 'allHot', hotConfig.hotSource, 1);
+        queryHotDoc = {
+          date: dateFormat,
+          sort: 'allHot',
+          channelType: hotConfig.hotSource,
+          day: 1
+        };
         break;
       case 'douban':
-        queryHotList = await doubanHot(hotConfig.hotSource, 20, 0);
+        queryHotDoc = {
+          type: hotConfig.hotSource,
+          limit: 20,
+          start: 0
+        };
         break;
       case 'komect':
-        queryHotList = await komectHot(hotConfig.hotSource, 20, 1);
+        queryHotDoc = {
+          type: hotConfig.hotSource,
+          limit: 20,
+          start: 1
+        };
         break;
-    }
+    };
 
-    if (_.size(queryHotList)) {
-      isVisible.load = false;
+    const queryHotList = await fetchHotPage(queryHotDoc);
+
+    if (queryHotList && queryHotList.length > 0) {
+      active.value.hotLoad = false;
       hotConfig.hotData = queryHotList;
       hotConfig.hotUpdateTime = dateFormat;
     } else {
       if (retryCount < retryLimit) {
         await getHotList(retryCount + 1);  // 递归请求
       } else {
-        isVisible.load = false;
+        active.value.hotLoad = false;
       }
     }
   } catch (err) {
@@ -249,13 +275,13 @@ const getHotList = async (retryCount = 1) => {
 const searchEvent = async (item) => {
   searchValue.value = item;
   if (activeRouteName.value === 'FilmIndex' || activeRouteName.value === 'AnalyzeIndex') {
-    if (item && _.findIndex(searchList.value, { title: item }) === -1) {
+    if (item && searchList.value.findIndex(doc => doc.videoName === item) === -1) {
       const doc = {
         date: moment().unix(),
-        title: item,
+        videoName: item,
         type: 'search'
       };
-      const searchListSize = _.size(searchList.value);
+      const searchListSize = searchList.value.length;
       if (searchListSize <= 5) {
         searchList.value.unshift(doc);
       } else {
@@ -267,7 +293,7 @@ const searchEvent = async (item) => {
   }
   switch (activeRouteName.value) {
     case 'FilmIndex':
-      emitter.emit('searchFilm', { kw: item, group: active.filmGroupType, filter: active.filmFilterType });
+      emitter.emit('searchFilm', { kw: item, group: active.value.filmGroupType, filter: active.value.filmFilterType });
       break;
     case 'IptvIndex':
       emitter.emit('searchIptv', item);
@@ -277,21 +303,33 @@ const searchEvent = async (item) => {
       break;
   }
 
-  isVisible.popup = false;
+  active.value.popup = false;
 };
 
 const popupVisibleEvent = (_, context) => {
   if (context.trigger === 'document') {
-    isVisible.popup = false;
+    active.value.popup = false;
   }
 }
 
 // 监听设置变更
-const refreshHotConfig = () => {
-  console.log('[search][bus][refresh]');
+const refreshHotConfig = async () => {
+  console.log('[search][bus][hot-refresh]');
   hotConfig.hotData = [];
-  getSetConfig();
+  active.value.popup = false;
+  active.value.hotLoad = true;
+  await getFilmSet();
 };
+
+const refreshSearchConfig = () => {
+  console.log('[search][bus][search-refresh]');
+  searchValue.value = '';
+};
+
+const isListenedRefreshHotConfig = emitter.all.get('refreshHotConfig');
+if (!isListenedRefreshHotConfig) emitter.on('refreshHotConfig', refreshHotConfig);
+const isListenedRefreshSearchConfig = emitter.all.get('refreshSearchConfig');
+if (!isListenedRefreshSearchConfig) emitter.on('refreshSearchConfig', refreshSearchConfig);
 </script>
 
 <style lang="less" scoped>
@@ -419,7 +457,7 @@ const refreshHotConfig = () => {
 
 .search-input {
   height: 32px;
-  width: 200px;
+  width: 250px;
 
   :deep(.t-input__prefix) {
     .t-input--suffix {
